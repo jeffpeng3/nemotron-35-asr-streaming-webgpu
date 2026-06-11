@@ -1,0 +1,14 @@
+[package]
+name = "nemotron-35-asr-streaming-webgpu"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+burn = "0.21.0"
+burn-flex = "0.21.0"
+burn-wgpu = "0.21.0"
+wasm-bindgen = "0.2"
+getrandom = { version = "0.4.2", features = ["wasm_js"] }
