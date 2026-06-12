@@ -1,16 +1,662 @@
 <!doctype html>
-<html lang="en-US">
+<html lang="zh-TW">
   <head>
     <meta charset="utf-8" />
-    <title>hello-wasm example</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nemotron 3.5 ASR 流式語音識別 (WebGPU)</title>
+    
+    <!-- 引入高質感字體 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Noto+Sans+TC:wght@300;400;700&display=swap" rel="stylesheet" />
+    
+    <style>
+      :root {
+        --bg-gradient: linear-gradient(135deg, #0f0c1b 0%, #15102a 50%, #060510 100%);
+        --panel-bg: rgba(25, 20, 50, 0.4);
+        --panel-border: rgba(255, 255, 255, 0.08);
+        --accent-glow: linear-gradient(90deg, #7f56d9 0%, #ff4fa8 100%);
+        --text-primary: #f3f1f9;
+        --text-secondary: #9e96b6;
+        --font-outfit: 'Outfit', 'Noto Sans TC', sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background: var(--bg-gradient);
+        color: var(--text-primary);
+        font-family: var(--font-outfit);
+        min-height: 100vh;
+        overflow-x: hidden;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 2rem 1rem;
+      }
+
+      header {
+        text-align: center;
+        margin-bottom: 2rem;
+        animation: fadeIn 1s ease-out;
+      }
+
+      h1 {
+        font-size: 2.5rem;
+        font-weight: 800;
+        background: var(--accent-glow);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        letter-spacing: -0.5px;
+        margin-bottom: 0.5rem;
+      }
+
+      header p {
+        color: var(--text-secondary);
+        font-size: 1rem;
+        font-weight: 300;
+      }
+
+      main {
+        width: 100%;
+        max-width: 1100px;
+        display: grid;
+        grid-template-columns: 350px 1fr;
+        gap: 2rem;
+        margin-top: 1rem;
+      }
+
+      @media (max-width: 900px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* 磨砂玻璃面板樣式 */
+      .glass-panel {
+        background: var(--panel-bg);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid var(--panel-border);
+        border-radius: 24px;
+        padding: 2rem;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        transition: transform 0.3s ease, border-color 0.3s ease;
+      }
+
+      .glass-panel:hover {
+        border-color: rgba(255, 255, 255, 0.15);
+      }
+
+      /* 設定區域 */
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+
+      .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-secondary);
+      }
+
+      select, input[type="text"] {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        color: var(--text-primary);
+        font-family: var(--font-outfit);
+        font-size: 0.95rem;
+        outline: none;
+        transition: border-color 0.3s ease;
+      }
+
+      select:focus, input[type="text"]:focus {
+        border-color: #7f56d9;
+      }
+
+      .checkbox-group {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 0.5rem;
+        cursor: pointer;
+      }
+
+      .checkbox-group input {
+        width: 18px;
+        height: 18px;
+        accent-color: #7f56d9;
+      }
+
+      /* 進度展示 */
+      .progress-container {
+        margin-top: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      .progress-bar-bg {
+        width: 100%;
+        height: 8px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 99px;
+        overflow: hidden;
+      }
+
+      .progress-bar-fill {
+        height: 100%;
+        width: 0%;
+        background: var(--accent-glow);
+        border-radius: 99px;
+        transition: width 0.1s ease;
+      }
+
+      .progress-stats {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+      }
+
+      /* 主控制區與轉錄結果 */
+      .workspace {
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+      }
+
+      .record-control {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+      }
+
+      .btn-record {
+        width: 70px;
+        height: 70px;
+        border-radius: 50%;
+        border: none;
+        background: rgba(255, 255, 255, 0.1);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        transition: transform 0.2s ease, background-color 0.3s ease;
+        outline: none;
+      }
+
+      .btn-record::after {
+        content: '';
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        border: 2px solid #ff4fa8;
+        opacity: 0;
+        transition: opacity 0.3s ease, transform 0.3s ease;
+      }
+
+      .btn-record.recording {
+        background: #ff4fa8;
+        transform: scale(1.05);
+        box-shadow: 0 0 20px rgba(255, 79, 168, 0.6);
+      }
+
+      .btn-record.recording::after {
+        opacity: 1;
+        transform: scale(1.3);
+        animation: pulse 1.5s infinite;
+      }
+
+      .btn-record svg {
+        fill: var(--text-primary);
+        width: 28px;
+        height: 28px;
+        transition: fill 0.3s ease;
+      }
+
+      .status-text {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+      }
+
+      .status-text.active {
+        color: #ff4fa8;
+      }
+
+      /* 即時波形 */
+      #waveform {
+        width: 100%;
+        height: 60px;
+        background: rgba(0, 0, 0, 0.15);
+        border-radius: 12px;
+      }
+
+      /* 轉錄文字顯示面板 */
+      .transcript-box {
+        flex: 1;
+        min-height: 350px;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .transcript-content {
+        flex: 1;
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 16px;
+        padding: 1.5rem;
+        font-size: 1.25rem;
+        line-height: 1.8;
+        overflow-y: auto;
+        color: #d1c9e8;
+        white-space: pre-wrap;
+      }
+
+      /* 亮色加亮標記 */
+      .new-text {
+        color: #e281ff;
+        font-weight: 700;
+        animation: highlightFade 3s forwards;
+      }
+
+      /* 按鈕樣式 */
+      .btn-primary {
+        width: 100%;
+        padding: 0.85rem;
+        background: var(--accent-glow);
+        border: none;
+        border-radius: 12px;
+        color: white;
+        font-weight: 600;
+        font-family: var(--font-outfit);
+        font-size: 1rem;
+        cursor: pointer;
+        box-shadow: 0 4px 15px rgba(127, 86, 217, 0.4);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(127, 86, 217, 0.6);
+      }
+
+      .btn-primary:disabled {
+        background: #332d4b;
+        box-shadow: none;
+        cursor: not-allowed;
+        color: var(--text-secondary);
+      }
+
+      /* 動畫定義 */
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      @keyframes pulse {
+        0% { transform: scale(1); opacity: 0.5; }
+        100% { transform: scale(1.4); opacity: 0; }
+      }
+
+      @keyframes highlightFade {
+        0% { text-shadow: 0 0 10px rgba(226, 129, 255, 0.8); }
+        100% { color: #d1c9e8; font-weight: 400; text-shadow: none; }
+      }
+    </style>
   </head>
   <body>
-    <script type="module">
-      import init, { greet } from "./pkg/nemotron_35_asr_streaming_webgpu.js";
+    <header>
+      <h1>Nemotron-3.5 ASR Streaming</h1>
+      <p>基於 WebGPU 與 Rust Burn 框架的流式語音聽寫</p>
+    </header>
 
-      init().then(() => {
-        greet("WebAssembly");
+    <main>
+      <!-- 設定側邊欄 -->
+      <section class="sidebar glass-panel">
+        <h2 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem;">控制中心</h2>
+        
+        <div class="control-group">
+          <label>目標語系</label>
+          <select id="select-lang">
+            <option value="zh">繁體中文 (Chinese)</option>
+            <option value="en" selected>英文 (English)</option>
+            <option value="ja">日文 (Japanese)</option>
+            <option value="de">德文 (German)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label>延遲模式 (Lookahead)</label>
+          <select id="select-latency">
+            <option value="low">低延遲 (80ms chunk)</option>
+            <option value="balanced" selected>平衡 (320ms chunk)</option>
+            <option value="high">高精確 (1.12s chunk)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label>權重下載網址</label>
+          <input type="text" id="input-model-url" value="https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b/resolve/main/model.safetensors" />
+        </div>
+
+        <div class="checkbox-group" id="gpu-toggle-container">
+          <input type="checkbox" id="chk-gpu" checked />
+          <label for="chk-gpu" style="cursor:pointer;">啟用 WebGPU 加速</label>
+        </div>
+
+        <button id="btn-init" class="btn-primary">初始化模型與環境</button>
+
+        <!-- 進度展示 -->
+        <div id="download-panel" class="progress-container" style="display: none;">
+          <label id="progress-title">下載權重檔案...</label>
+          <div class="progress-bar-bg">
+            <div id="progress-fill" class="progress-bar-fill"></div>
+          </div>
+          <div class="progress-stats">
+            <span id="progress-percent">0%</span>
+            <span id="progress-bytes">0 / 0 MB</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 轉錄主工作區 -->
+      <section class="workspace glass-panel">
+        <div class="record-control">
+          <button id="btn-record" class="btn-record" disabled>
+            <!-- 錄音麥克風 SVG -->
+            <svg id="svg-mic" viewBox="0 0 24 24">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
+            </svg>
+          </button>
+          <div>
+            <div id="status-label" class="status-text">請先點擊左側「初始化模型」</div>
+            <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;" id="device-info"></div>
+          </div>
+        </div>
+
+        <!-- 即時音量波形 -->
+        <canvas id="waveform"></canvas>
+
+        <!-- 轉寫結果面板 -->
+        <div class="transcript-box">
+          <label>即時識別文本</label>
+          <div id="transcript" class="transcript-content">語音聽寫內容將顯示在此處...</div>
+        </div>
+      </section>
+    </main>
+
+    <!-- JS 邏輯腳本 -->
+    <script type="module">
+      import init, { AsrSession, AsrSessionConfig } from "./pkg/nemotron_35_asr_streaming_webgpu.js";
+
+      // DOM 元素引用
+      const selectLang = document.getElementById("select-lang");
+      const selectLatency = document.getElementById("select-latency");
+      const inputModelUrl = document.getElementById("input-model-url");
+      const chkGpu = document.getElementById("chk-gpu");
+      const btnInit = document.getElementById("btn-init");
+      const btnRecord = document.getElementById("btn-record");
+      const statusLabel = document.getElementById("status-label");
+      const deviceInfo = document.getElementById("device-info");
+      const downloadPanel = document.getElementById("download-panel");
+      const progressTitle = document.getElementById("progress-title");
+      const progressFill = document.getElementById("progress-fill");
+      const progressPercent = document.getElementById("progress-percent");
+      const progressBytes = document.getElementById("progress-bytes");
+      const transcriptBox = document.getElementById("transcript");
+      const canvasWaveform = document.getElementById("waveform");
+      
+      let wasmInitialized = false;
+      let session = null;
+      let isRecording = false;
+      let audioContext = null;
+      let processorNode = null;
+      let mediaStreamSource = null;
+      let canvasCtx = canvasWaveform.getContext("2d");
+      
+      // 緩存模型與 Tokenizer 資源
+      async function getOrFetchWithProgress(url, title, onProgress) {
+        const cache = await caches.open('nemotron-asr-cache');
+        const cachedResponse = await cache.match(url);
+        
+        if (cachedResponse) {
+          console.log(`緩存命中: ${url}`);
+          onProgress(100, 100);
+          return await cachedResponse.arrayBuffer();
+        }
+        
+        console.log(`緩存未命中，開始下載: ${url}`);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`下載失敗: ${response.statusText}`);
+        
+        const contentLength = response.headers.get('content-length');
+        if (!contentLength) {
+          // 如果沒有長度，直接載入 ArrayBuffer
+          const buffer = await response.arrayBuffer();
+          await cache.put(url, new Response(buffer.slice(0)));
+          return buffer;
+        }
+        
+        const total = parseInt(contentLength, 10);
+        let loaded = 0;
+        
+        const reader = response.body.getReader();
+        const chunks = [];
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          loaded += value.byteLength;
+          onProgress(loaded, total);
+        }
+        
+        // 拼接 chunks
+        const allChunks = new Uint8Array(loaded);
+        let position = 0;
+        for (let chunk of chunks) {
+          allChunks.set(chunk, position);
+          position += chunk.byteLength;
+        }
+        
+        const buffer = allChunks.buffer;
+        await cache.put(url, new Response(buffer.slice(0)));
+        return buffer;
+      }
+
+      // 初始化按鈕事件
+      btnInit.addEventListener("click", async () => {
+        btnInit.disabled = true;
+        downloadPanel.style.display = "flex";
+        statusLabel.textContent = "正在準備環境...";
+        
+        try {
+          // 1. 初始化 WASM
+          if (!wasmInitialized) {
+            statusLabel.textContent = "載入 WebAssembly 模組...";
+            await init();
+            wasmInitialized = true;
+          }
+          
+          // 2. 下載權重檔案
+          const modelUrl = inputModelUrl.value;
+          progressTitle.textContent = "下載神經網路權重 (600M)...";
+          const weightsBuffer = await getOrFetchWithProgress(modelUrl, "Weights", (loaded, total) => {
+            const percent = Math.round((loaded / total) * 100);
+            progressFill.style.width = `${percent}%`;
+            progressPercent.textContent = `${percent}%`;
+            progressBytes.textContent = `${(loaded / (1024 * 1024)).toFixed(1)} / ${(total / (1024 * 1024)).toFixed(1)} MB`;
+          });
+          
+          // 3. 下載 Tokenizer.json
+          // 我們假設 tokenizer.json 託管在與 weights 同一目錄或預設路徑下
+          const tokenizerUrl = modelUrl.substring(0, modelUrl.lastIndexOf("/")) + "/tokenizer.json";
+          progressTitle.textContent = "下載 Tokenizer 詞表配置...";
+          const tokenizerBuffer = await getOrFetchWithProgress(tokenizerUrl, "Tokenizer", (loaded, total) => {
+            progressFill.style.width = `100%`;
+            progressPercent.textContent = `100%`;
+          });
+          
+          const enc = new TextDecoder("utf-8");
+          const tokenizerJson = enc.decode(tokenizerBuffer);
+          
+          // 4. 實例化 ASR Session
+          statusLabel.textContent = "正在載入模型至 WebGPU 顯存中...";
+          const useGpu = chkGpu.checked;
+          const language = selectLang.value;
+          const latencyMode = selectLatency.value;
+          
+          const config = new AsrSessionConfig(useGpu, language, latencyMode);
+          
+          // create 是 Wasm 導出的方法，接收 config, 權重 Uint8Array, tokenizer.json
+          session = AsrSession.create(config, new Uint8Array(weightsBuffer), tokenizerJson);
+          
+          statusLabel.textContent = "模型初始化完畢，可以開始錄音！";
+          deviceInfo.textContent = useGpu ? "使用 WebGPU 硬體加速推理" : "已停用 GPU，使用 CPU 慢速推理";
+          btnRecord.disabled = false;
+          downloadPanel.style.display = "none";
+        } catch (err) {
+          console.error(err);
+          statusLabel.textContent = `初始化出錯: ${err.message}`;
+          btnInit.disabled = false;
+        }
       });
+
+      // 錄音控制事件
+      btnRecord.addEventListener("click", async () => {
+        if (isRecording) {
+          // 停止錄音
+          stopRecording();
+        } else {
+          // 開始錄音
+          await startRecording();
+        }
+      });
+
+      async function startRecording() {
+        if (!session) return;
+        
+        isRecording = true;
+        btnRecord.classList.add("recording");
+        statusLabel.textContent = "即時聽寫中... 請對著麥克風說話";
+        statusLabel.classList.add("active");
+        
+        // 初始化音訊收集
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        mediaStreamSource = audioContext.createMediaStreamSource(stream);
+        
+        // 為了將音訊幀發送到 Wasm，我們使用 ScriptProcessorNode 監聽音訊數據
+        // bufferSize 設為 2048 點，對於 44.1kHz / 48kHz 採樣，每次回呼大約 40ms，非常流暢
+        processorNode = audioContext.createScriptProcessor(2048, 1, 1);
+        
+        // 重設 ASR session 內部緩衝
+        session.reset();
+        transcriptBox.innerHTML = "";
+        
+        processorNode.onaudioprocess = (e) => {
+          if (!isRecording) return;
+          const inputBuffer = e.inputBuffer;
+          const pcmData = inputBuffer.getChannelData(0); // Float32Array 格式
+          
+          // 1. 即時繪製波形
+          drawWaveform(pcmData);
+          
+          // 2. 塞入 Rust ASR Session 推理，並返回當前時間步解碼出的增量文字
+          // 傳入 PCM 數據與原始採樣率，Rust 內部會自動線性重採樣至 16kHz
+          const incrementalText = session.feed_audio(pcmData, audioContext.sampleRate);
+          
+          if (incrementalText && incrementalText.trim().length > 0) {
+            // 在轉寫區追加文字，並對新增的部分實施亮紫色高亮效果
+            const span = document.createElement("span");
+            span.className = "new-text";
+            span.textContent = incrementalText;
+            transcriptBox.appendChild(span);
+            
+            // 自動滾動到底部
+            transcriptBox.scrollTop = transcriptBox.scrollHeight;
+          }
+        };
+        
+        mediaStreamSource.connect(processorNode);
+        processorNode.connect(audioContext.destination);
+      }
+
+      function stopRecording() {
+        isRecording = false;
+        btnRecord.classList.remove("recording");
+        statusLabel.textContent = "錄音已停止，可以點擊重新錄音";
+        statusLabel.classList.remove("active");
+        
+        if (processorNode) {
+          processorNode.disconnect();
+          processorNode = null;
+        }
+        if (mediaStreamSource) {
+          mediaStreamSource.disconnect();
+          mediaStreamSource = null;
+        }
+        if (audioContext) {
+          audioContext.close();
+          audioContext = null;
+        }
+        
+        // 清理畫布
+        canvasCtx.clearRect(0, 0, canvasWaveform.width, canvasWaveform.height);
+      }
+
+      // 波形繪製
+      function drawWaveform(data) {
+        const width = canvasWaveform.width = canvasWaveform.clientWidth;
+        const height = canvasWaveform.height = canvasWaveform.clientHeight;
+        
+        canvasCtx.fillStyle = "rgba(0, 0, 0, 0.2)";
+        canvasCtx.fillRect(0, 0, width, height);
+        
+        canvasCtx.lineWidth = 2;
+        canvasCtx.strokeStyle = "rgba(226, 129, 255, 0.8)";
+        canvasCtx.beginPath();
+        
+        const sliceWidth = width / data.length;
+        let x = 0;
+        
+        for (let i = 0; i < data.length; i++) {
+          const v = data[i] * 2; // 放大振幅便於觀測
+          const y = (v * height / 2) + height / 2;
+          
+          if (i === 0) {
+            canvasCtx.moveTo(x, y);
+          } else {
+            canvasCtx.lineTo(x, y);
+          }
+          
+          x += sliceWidth;
+        }
+        
+        canvasCtx.lineTo(width, height / 2);
+        canvasCtx.stroke();
+      }
     </script>
   </body>
 </html>
